@@ -6,13 +6,13 @@ export class ValidacionService {
   private readonly logger = new Logger(ValidacionService.name);
 
   async validarAbogadoConPaginacion(matricula: string) {
-    const browser = await puppeteer.launch({ headless: true });
+    const browser = await puppeteer.launch({ headless: true, timeout: 120000 });
     const page = await browser.newPage();
 
     try {
       await page.goto(
         'https://app.funcionjudicial.gob.ec/ForoAbogados/Publico/frmConsultasGenerales.jsp',
-        { waitUntil: 'domcontentloaded' }
+        { waitUntil: 'domcontentloaded', timeout: 60000 }
       );
 
       const totalPaginas = 6000;
@@ -20,43 +20,34 @@ export class ValidacionService {
       for (let pagina = 1; pagina <= totalPaginas; pagina++) {
         this.logger.log(`🔍 Buscando en página ${pagina}`);
 
-        // Cambiar manualmente al número de página
+        // Cambiar el valor del input y hacer click en el botón de aceptar
         await page.evaluate((numeroPagina) => {
-          const inputPagina = document.getElementById('txtNumeroPagina') as HTMLInputElement;
-          if (inputPagina) {
-            inputPagina.value = String(numeroPagina);
-          }
+          const input = document.getElementById('txtNumeroPagina') as HTMLInputElement;
+          if (input) input.value = String(numeroPagina);
         }, pagina);
 
-        // Click en el botón con el icono verde para avanzar a esa página
         const botones = await page.$$('button');
         for (const boton of botones) {
           const img = await boton.$('img');
           if (img) {
-            const alt = await img.evaluate(el => el.getAttribute('src'));
-            if (alt && alt.includes('accept.gif')) {
-              // Captura matrícula de la primera fila antes del cambio
-              const anteriorPrimeraMatricula = await page.evaluate(() => {
-                const primeraFila = document.querySelector('table tbody tr');
-                const columnas = primeraFila?.querySelectorAll('td');
-                return columnas && columnas.length > 2 ? columnas[2].innerText.trim() : null;
-              });
-
+            const src = await img.evaluate(el => el.getAttribute('src'));
+            if (src && src.includes('accept.gif')) {
               await boton.click();
-
-              // Espera hasta que cambie la matrícula visible en la primera fila (indicando que cambió la página)
-              await page.waitForFunction((anteriorMatricula) => {
-                const primeraFila = document.querySelector('table tbody tr');
-                const columnas = primeraFila?.querySelectorAll('td');
-                const nuevaMatricula = columnas && columnas.length > 2 ? columnas[2].innerText.trim() : null;
-                return nuevaMatricula !== anteriorMatricula;
-              }, {}, anteriorPrimeraMatricula);
-
               break;
             }
           }
         }
 
+        // Esperar respuesta del backend y renderización de tabla
+        await page.waitForResponse(response =>
+          response.url().includes('frmConsultasGenerales.jsp') && response.status() === 200,
+          { timeout: 60000 }
+        );
+
+        await page.waitForSelector('table tbody tr');
+        //await page.waitForTimeout(2000); // amortiguar lentitud del sitio
+
+        // Evaluar si la matrícula buscada está presente
         const resultado = await page.evaluate((matriculaBuscada) => {
           const filas = Array.from(document.querySelectorAll('table tbody tr'));
           for (const fila of filas) {

@@ -34,7 +34,7 @@ export class ValidacionController {
       status: 'ok',
       timestamp: new Date().toISOString(),
       service: 'validacion-foro-abogados-puppeteer',
-      version: '3.3.0'
+      version: '3.4.0'
     };
   }
 }
